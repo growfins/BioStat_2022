@@ -22,7 +22,7 @@ library(FactoMineR)
 library(ggbiplot)
 library(dplyr)
 
-data = read.csv('/Users/nataliesheiko/Bioinf/DataViz/DataViz_HT1/insurance_cost.csv', stringsAsFactors = T)
+data = read.csv('insurance_cost.csv', stringsAsFactors = T)
 head(data, 5)
 str(data)
 ```
