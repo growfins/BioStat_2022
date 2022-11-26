@@ -1,0 +1,217 @@
+---
+title: "Multiple comparisons, task N1"
+author: "Natalia Sheiko"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,  
+                      message = FALSE, 
+                      warning = FALSE, 
+                      results = 'hide')
+```
+
+```{r echo = FALSE}
+library(dplyr)
+library(ggplot2)
+library(rstatix)
+library(tidyr)
+library(gtools)
+library(flextable)
+library(ggpubr)
+```
+
+## A first glance at the data
+
+```{r echo = FALSE, results='hold'}
+soccer_general <- read.csv("soccer.csv", sep=";")[, 2:6] %>% 
+    mutate(Position = as.factor(Position), 
+    Nationality = as.factor(Nationality), 
+    Age = as.numeric(Age), 
+    Height = as.numeric(Height)
+) %>% 
+filter(Nationality %in% c("Spanish", "Italian", "German", "English", "Argentinian")) 
+
+set.seed(1) 
+
+soccer_wrk <- soccer_general[sample(1:nrow(soccer_general), 150), ] %>% 
+    mutate(Nationality = factor(Nationality))
+
+soccer_wrk %>% summary
+```
+
+```{r echo = FALSE}
+population_height <- mean(soccer_general$Height)
+
+ggplot() +
+  geom_boxplot(data = soccer_wrk,
+               aes(x = Position, y = Height)) +
+  geom_hline(yintercept = population_height, color = 'blue') +
+  theme_light() + 
+  ggtitle("Comparison of players' height grouped by positions with the population's mean")
+  
+```
+
+## Confidence intervals for pairwise testing
+
+```{r}
+n = 6 # number of comparisons
+FWER = 0.05
+CL = (1-FWER)^(1/n) # Confidence level
+```
+
+
+```{r echo = FALSE, results='hold'}
+pvalue_list <- list()
+
+grid <- as.data.frame(combinations(n = 4, r = 2, v = as.character(unique(soccer_wrk$Position))))
+
+mean_data <- soccer_wrk %>%
+    group_by(Position) %>% summarise(mean(Height))
+
+mean_data <- setNames(as.list(mean_data$`mean(Height)`), mean_data$Position)
+
+for (number in 1:length(grid$V1)) {
+  i <- grid[number, 'V1']   
+  j <- grid[number, 'V2']
+  grid[number, 'means diff'] <- round(as.numeric(mean_data[i]) - as.numeric(mean_data[j]), 2)
+  sample <- soccer_wrk %>% filter(Position == i | Position == j)
+  test_0 <- t.test(Height ~ Position, data = sample) 
+  test <- test_0 %>% with(conf.int)
+  grid[number,'CI'] <- paste(round(test[1], 2), round(test[2], 2), sep = ' - ')
+  grid[number,'mean covering'] <- ifelse(grid[number, 'means diff'] <= round(test[2], 2), 'covers', 'does not cover')
+  grid[number,'zero covering'] <- ifelse(round(test[2], 2) > 0 & round(test[1], 2) < 0, 'covers', 'does not cover')
+  testB <- t.test(Height ~ Position, data = sample, conf.level = CL) %>% with(conf.int)
+  grid[number,'simultaneous CI'] <- paste(round(testB[1], 2), round(testB[2], 2), sep = ' - ') 
+  grid[number,'mean covering with Bonferroni correction '] <- ifelse(grid[number, 'means diff'] <= round(testB[2], 2), 'covers', 'does not cover')
+  grid[number,'zero covering with Bonferroni correction'] <- ifelse(round(testB[2], 2) > 0 & round(testB[1], 2) < 0, 'covers', 'does not cover')
+  pvalue_list <- append(pvalue_list,test_0$p.value)
+}
+
+grid %>% unite('pair', V1, V2, sep = '-') %>% flextable() %>%
+  set_table_properties(layout = "autofit") %>% theme_box()
+
+```
+
+## Pairwise comparison
+
+### Normality test
+
+Paired t-test can be used only when the data is normally distributed. This can be checked using Shapiro-Wilk test.
+
+H0: the distribution of the data is not significantly different from normal distribution. 
+
+H1: the distribution of the data is significantly different from normal distribution.
+
+```{r results = 'hold', echo = FALSE}
+summary_table <- soccer_wrk %>% 
+  group_by(Position) %>% 
+  summarise(shapiro_test(Height)) %>%
+  mutate('hypothesis accepted' = ifelse(p.value > 0.05, 'H0', 'H1')) %>% 
+  flextable() %>%
+  set_table_properties(layout = "autofit") %>% 
+  theme_box()
+summary_table
+```
+
+
+We can assume the normality for all the values in all groups, so pairwise t-test can be used.
+
+### Pairwise test without correction:
+
+```{r results = 'hold', echo = FALSE}
+pw_test <- pairwise.t.test(soccer_wrk$Height, soccer_wrk$Position, 
+                           pool.sd = FALSE, p.adjust.method = 'none')
+pw_test
+
+pw_test <- pairwise_t_test(soccer_wrk, Height ~ Position, 
+                           pool.sd = FALSE, p.adjust.method = 'none') 
+
+plot <- ggboxplot(soccer_wrk, x = "Position", y = "Height")
+pw_test <- pw_test %>% add_xy_position(x = "Position")
+plot + stat_pvalue_manual(pw_test, label = "p", label.size = 2.5)
+
+```
+
+### Pairwise test with correction:
+
+#### Correction method: Holm
+
+```{r results = 'hold', echo = FALSE}
+pw_test_holm <- pairwise.t.test(soccer_wrk$Height, soccer_wrk$Position, 
+                           pool.sd = FALSE)
+pw_test_holm
+
+pw_test_holm <- pairwise_t_test(soccer_wrk, Height ~ Position, 
+                                pool.sd = FALSE) 
+
+pw_test_holm <- pw_test_holm %>% add_xy_position(x = "Position")
+plot + stat_pvalue_manual(pw_test_holm, label = "p.adj", label.size = 2.5)
+```
+
+#### Correction method: Benjamini & Hochberg
+
+```{r  results = 'hold', echo = FALSE}
+pw_test_hoch <- pairwise.t.test(soccer_wrk$Height, soccer_wrk$Position, 
+                           pool.sd = FALSE, p.adjust.method = 'BH')
+pw_test_hoch
+
+pw_test_hoch <- pairwise_t_test(soccer_wrk, Height ~ Position, 
+                                pool.sd = FALSE, p.adjust.method = 'BH') 
+
+pw_test_hoch <- pw_test_hoch %>% add_xy_position(x = "Position")
+plot + stat_pvalue_manual(pw_test_hoch, label = "p.adj", label.size = 2.5)
+```
+
+## Population vs sample
+
+```{r results = 'hold', echo = FALSE}
+
+grid_general <- as.data.frame(combinations(n = 4, r = 2, v = as.character(unique(soccer_general$Position))))
+
+mean_data_general <- soccer_general %>%
+    group_by(Position) %>% summarise(mean(Height))
+
+mean_data_general <- setNames(as.list(mean_data_general$`mean(Height)`), mean_data_general$Position)
+
+pw_test_holm_general <- pairwise_t_test(soccer_general, Height ~ Position, 
+                                        pool.sd = FALSE) 
+pw_test_hoch_general <- pairwise_t_test(soccer_general, Height ~ Position, 
+                                        pool.sd = FALSE, p.adjust.method = 'BH') 
+
+for (number in 1:length(grid_general$V1)) {
+  
+  i <- grid_general[number, 'V1']   
+  j <- grid_general[number, 'V2']
+   grid_general$`means difference in sample` <- grid$`means diff`
+   grid_general[number, 'means difference in population'] <- round(as.numeric(mean_data_general[i]) - as.numeric(mean_data_general[j]), 2)
+  sample <- soccer_general %>% filter(Position == i | Position == j)
+  test_pvalue <- t.test(Height ~ Position, data = sample) %>% with(p.value)
+  test_CI <- t.test(Height ~ Position, data = sample) %>% with(conf.int)
+  grid_general[number,'CI for means difference in population'] <- paste(round(test_CI[1], 2), round(test_CI[2], 2), sep = ' - ')
+  grid_general[number,'p-value for population'] <- format.pval(pv = test_pvalue, digits = 2, eps = 0.001, nsmall = 3)
+ 
+}
+
+grid_general %>%
+  mutate('p-value, Holm correction' = format.pval(pv = pw_test_holm_general$p.adj, 
+                                                  digits = 2, eps = 0.001, nsmall = 3)) %>%
+  mutate('p-value, BH correction' = format.pval(pv = pw_test_hoch_general$p.adj,
+                                                digits = 2, eps = 0.001, nsmall = 3)) %>%
+  mutate("hypothesis accepted in sample's pairwise testing" = ifelse(pvalue_list > 0.05, 'H0', 'H1')) %>% 
+  mutate("hypothesis accepted in population's pairwise testing" = ifelse(`p-value for population` > 0.05, 'H0', 'H1')) %>%
+  flextable() %>%
+  set_table_properties(layout = "autofit") %>% theme_box() %>% 
+  style(i = 1,
+        j = 9:10,
+        pr_t = fp_text_default(italic = TRUE,
+                               bold = TRUE,
+                               color = "red"))
+
+```
+
+As we can see, there is a mismatching of hypotheses accepted between sample's pairwise testing and population's pairwise testing.
+
+Therefore there is a significant difference between Defenders' and Forwards' height in population, that was missed in sample's pairwise testing.
+
+The other hypotheses completely match for sample and population testing.
