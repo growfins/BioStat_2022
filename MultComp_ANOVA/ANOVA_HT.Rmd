@@ -1,0 +1,221 @@
+---
+title: "Multiple comparisons & ANOVA, task N2"
+author: "Natalia Sheiko"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE,  
+                      message = FALSE, 
+                      warning = FALSE, 
+                      results = 'hide')
+```
+
+```{r echo = F}
+library(dplyr)
+library(rstatix)
+library(flextable)
+library(multcomp)
+library(ggplot2)
+```
+
+## A first glance at the data
+
+```{r echo = FALSE, results='hold'}
+soccer_general <- read.csv("soccer.csv", sep=";")[, 2:6] %>% 
+    mutate(Position = as.factor(Position), 
+    Nationality = as.factor(Nationality), 
+    Age = as.numeric(Age), 
+    Height = as.numeric(Height)
+) %>% 
+filter(Nationality %in% c("Spanish", "Italian", "German", "English", "Argentinian")) 
+
+set.seed(1) 
+
+soccer_wrk <- soccer_general[sample(1:nrow(soccer_general), 150), ] %>% 
+    mutate(Nationality = factor(Nationality))
+
+soccer_wrk %>% summary
+```
+
+## ANOVA for the differences among average height of soccer players on different field positions.
+
+ANOVA requires three primary assumptions:
+
+1.  The responses for each factor level have a normal distribution.
+2.  The distributions for each factor level have the same variance.
+3.  The data are independent.
+
+**Note that players on one position do not provide information about players on other position, so data are independent.**
+
+### Data imbalance checking & normality testing
+
+**H0:** the distribution of the data is not significantly different from normal distribution.
+
+**H1:** the distribution of the data is significantly different from normal distribution.
+
+```{r results='hold', echo = F}
+soccer_wrk %>%
+  group_by(Position) %>%
+  summarise(shapiro_test(Height), 
+            length(Height),
+            var(Height)) %>%
+  mutate('hypothesis accepted' = ifelse(p.value > 0.05, 'H0', 'H1')) %>% 
+  flextable() %>%
+  set_table_properties(layout = "autofit") %>% 
+  theme_box()
+```
+
+``` {r echo = F}
+
+ggplot() +
+  geom_boxplot(data = soccer_wrk, 
+               aes(x = Height, y = Position)) +
+  theme_light() +
+  ggtitle("Comparison of players' height grouped by positions")
+
+barplot(prop.table(table(soccer_wrk$Position)),
+        main = "Class Distribution for players' field position")
+```
+
+### Homoscedasticity checking
+
+**H0:** the variances are equal for all positions (groups).
+
+**H1:** the variances are not equal for one pair of positions (groups) or more.
+
+We use Bartlett test to determine whether or not the variances between several groups are equal.
+
+```{r results='hold', echo = F}
+bartlett.test(Height ~ Position, soccer_wrk)
+```
+
+Since the p-value is less than 0.05, we can reject the null hypothesis.
+
+**Conclusion:**
+
+1.  Based on the plot it clearly evident that near 25% of the data is in every class. There is no big difference observed in the amount of data available.
+
+2.  We also can assume the normality for the players' height in all field position groups.
+
+3.  Basing on the table above and Bartlett test's result we don't have sufficient evidence to say that the four groups have different variances.
+
+***... therefore we can proceed to perform the one-way ANOVA.***
+
+### One-way ANOVA
+
+**H0:** there is no difference among players' height on different field positions
+
+**H1:** there is a difference between players' height for one pair of field positions or more.
+
+```{r results='hold', echo = F}
+oneway.test(Height ~ Position, data = soccer_wrk)
+```
+
+Since the p-value is less than 0.05, we can reject the null hypothesis. 
+
+There is a difference between players' height for some pair/pairs of field positions. To detect this pairs we can perform a post hoc analysis with Hothorn-Bretz-Westfall procedure
+
+```{r results='hold', echo = F}
+m0 <- lm(Height ~ Position, data = soccer_wrk)
+
+HBW.comp <- m0 %>%  glht(linfct = mcp(Position = "Tukey"))
+HBW.comp %>% summary()
+HBW.comp %>% confint()
+par(mar = c(5, 10, 4, 2)+0.1)
+HBW.comp %>% plot(xlab = "Height difference (cm)")
+```
+So we can conclude that there is significant difference between height of players on this field positions:
+
+   - Goalkeeper - Defender 
+   - Midfielder - Defender
+   - Goalkeeper - Forward 
+   - Midfielder - Goalkeeper
+
+The hometask N1 leads to another conclusion: there was significant differences only between this positions:
+
+   - Defender - Forward
+   - Forward - Midfielder
+
+## ANOVA for the differences among average height of soccer players of different countries.
+
+In general, the process is the same as in the example above.
+
+**Players from one country do not provide information about  other players' countries, so data are independent.**
+
+### Data imbalance checking & normality testing
+
+**H0:** the distribution of the data is not significantly different from normal distribution.
+
+**H1:** the distribution of the data is significantly different from normal distribution.
+
+```{r results='hold', echo = F}
+
+soccer_wrk %>%
+  group_by(Nationality) %>%
+  summarise(shapiro_test(Height), 
+            length(Height),
+            var(Height)) %>%
+  mutate('hypothesis accepted' = ifelse(p.value > 0.05, 'H0', 'H1')) %>% 
+  flextable() %>%
+  set_table_properties(layout = "autofit") %>% 
+  theme_box()
+```
+
+```{r results='hold', echo = F}
+ggplot() +
+  geom_boxplot(data = soccer_wrk, 
+               aes(x = Height, y = Nationality)) +
+  theme_light() +
+  ggtitle("Comparison of players' height grouped by countries")
+
+barplot(prop.table(table(soccer_wrk$Nationality)),
+        main = "Class Distribution for players' country")
+```
+
+### Homoscedasticity checking
+
+**H0:** the variances are equal for all positions (groups).
+
+**H1:** the variances are not equal for one pair of positions (groups) or more.
+
+We use Bartlett test to determine whether or not the variances between several groups are equal.
+
+```{r results='hold', echo = F}
+bartlett.test(Height ~ Nationality, soccer_wrk)
+```
+Since the p-value is more than 0.05, we can't reject the null hypothesis.
+
+**Conclusion:**
+
+1.  Based on the plot it clearly evident that near 20% of the data is in every class. So there is no big difference observed in the amount of data available.
+
+2.  We can't assume the normality for one group of players' (Nationality = Spanish). This won't be a problem because the sample size had sufficient number of observations (50). We can assume the normality for other groups.
+
+3.  Basing on Bartlett test's result we can say that the five groups have similar variance.
+
+***... therefore we can proceed to perform general ANOVA (F-test).***
+
+### ANOVA
+
+**H0:** there is no difference among average height of players from different countries 
+
+**H1:** there is a difference among average height of players from different countries 
+
+```{r results='hold', echo = F}
+aov(Height ~ Nationality, data = soccer_wrk) %>% summary
+```
+
+Since the p-value is more than 0.05, we can't reject the null hypothesis. 
+
+```{r results='hold', echo = F}
+m0 <- lm(Height ~ Nationality, data = soccer_wrk)
+HBW.comp <- m0 %>%  glht(linfct = mcp(Nationality = "Tukey"))
+HBW.comp %>% summary()
+HBW.comp %>% confint()
+par(mar = c(5, 10, 4, 2)+0.1)
+HBW.comp %>% plot(xlab = "Height difference (cm)")
+```
+**Conclusion:**
+We can conclude that there is no significant difference between height of players from different countries.
