@@ -1,0 +1,733 @@
+---
+title: "STATISTICAL REPORT TEAM 3"
+author: Екатерина Иванова, Ольга Багрова, Лилия Голубникова, Дмитрий Зубков, Наталья
+  Шейко
+date: "2023-01-15"
+output:
+  word_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, echo = FALSE, warnings = FALSE, message = FALSE)
+```
+
+```{r results = FALSE, warning=FALSE}
+library (readxl)
+library(psych)
+library(dplyr)
+library(Rmisc)
+library(tidyr)
+library(tibble)
+library(flextable)
+library(ggplot2)
+library(stringr)
+
+if(!require('wesanderson')) install.packages('wesanderson') ; library(wesanderson)
+if(!require('RColorBrewer')) install.packages('RColorBrewer') ; library(RColorBrewer)
+if(!require('gcookbook')) install.packages('gcookbook') ; library(gcookbook)
+if(!require('plotly')) install.packages('plotly') ; library(plotly)
+
+
+library (tidyverse)
+library (readr)
+library(reshape2)
+library(openxlsx)
+library(knitr)
+Sys.setlocale("LC_CTYPE", "russian")
+```
+
+```{r}
+#загрузка датасета, приведение типов данных к необходимым
+data <- subset(read_excel('db_team3.xlsx'), select = -1)
+data <- data %>%
+  mutate (across(c(V0_GRP, V0_DEM_GEN, V1_NORM_ECG, V1_NORM_PHYS, V1_NORM_VIT, V2_NORM_ECG, 
+                   V2_NORM_PHYS, V2_NORM_VIT), function(x) as.factor(x))) %>%
+  transform(V0_DEM_GEN = factor(V0_DEM_GEN,
+                                levels = c(0:1),
+                                labels = c('Ж', 'M')))
+```
+
+## Описание базовых характеристик пациентов
+
+#### Таблицы описательной статистики базовых характеристик пациентов и баллов опросника RQLQ (для визита 1) по всем группам.
+
+
+*Для количественных переменных:*
+```{r}
+statistics <- list(
+      `_Количество субъектов` = ~length(.x) %>% as.character(),
+      `_Количество (есть данные)` = ~ sum(!is.na(.x)) %>% as.character(),
+      `_Нет данных` = ~ sum(is.na(.x)) %>% as.character(),
+      `_Ср. знач.` = ~ mean(.x, na.rm = TRUE) %>% round(2) %>% as.character(),
+      `_Станд. отклон.` = ~ sd(.x, na.rm = TRUE) %>% round(2) %>% as.character(),
+      `_95% ДИ для среднего` = ~ paste0(CI(.x, ci = 0.95)[3] %>% round(2), '-', CI(.x, ci = 0.95)[1] %>% round(2)) %>% as.character(),
+      `_Мин. - макс.` = ~ paste0(min(.x, na.rm = TRUE) %>% round(2), " - ", max(.x, na.rm = TRUE) %>% round(2)) %>% as.character(),
+      `_Медиана` = ~ median(.x, na.rm = TRUE) %>% round(2) %>% as.character(),
+      `_Q1 - Q3` = ~ paste0(quantile(.x, 0.25, na.rm = TRUE) %>% round(2), " - ", quantile(.x, 0.75, na.rm = TRUE) %>% round(2) %>% as.character())
+      )
+```
+
+```{r warning = FALSE}
+quat_stat <- data %>%
+  select(`V0_GRP`, `V0_DEM_AGE`, V1_RQLQ) %>%
+  group_by(V0_GRP) %>%
+  dplyr::summarise(across(where(is.numeric), statistics)) %>%
+  t() %>% as.data.frame() %>% rownames_to_column("value") %>%
+  dplyr::rename('G. glauca 15C' = V2, 'Placebo' = V1) %>%
+  separate(value, into = c("Переменная","Статистика"), sep = '__') %>%
+  dplyr::mutate(`Статистика` = ifelse(row_number() == 1, "R/T",`Статистика`)) %>%
+  flextable()%>% theme_box() %>%
+  merge_v('Переменная') %>%
+  flextable::align(j = c(1, 3:4), align = "center", part = 'all') %>%
+  set_table_properties(layout = "autofit")
+
+quat_stat
+```
+
+*Для категориальных переменных:*
+```{r}
+data %>%
+  select(V0_GRP, where(is.factor)) %>%
+  count(`V0_GRP` ~ `V0_DEM_GEN`) %>%
+  group_by(V0_GRP) %>%
+  mutate(`Всего / % по выборке` = paste0(freq, ' / ', (freq/sum(freq)) %>% round(4) %>% `*`(100) %>% str_c('%'))) %>% mutate(freq = NULL) %>%
+  tidyr::pivot_wider(names_from = c(`V0_GRP`),
+                     values_from = c(`Всего / % по выборке`)) %>%
+   dplyr::rename('G. glauca 15C, \nвсего / % по выборке' = T, 'Placebo, \nвсего / % по выборке' = R, 'Gender' = V0_DEM_GEN) %>%
+  flextable()%>%
+  theme_box() %>%
+  set_table_properties(layout = "autofit") %>%
+  flextable::align(align = "center", part = 'all')
+
+GenderT <- data %>%
+  dplyr::filter(V0_GRP == "T") %>%
+  dplyr::group_by(V0_GRP, V0_DEM_GEN) %>%
+  #count %>%
+  ggplot(aes(V0_DEM_GEN)) +
+  geom_bar(fill = wes_palette("Royal2")[3:4]) +
+  coord_flip() +
+  xlab('Пол') +
+          ylab('Количество') +
+          theme_minimal() +
+          ggtitle('Количество мужчин/женщин в когорте принимающих препарат')
+GenderT
+
+GenderR <- data %>%
+  dplyr::filter(V0_GRP == "R") %>%
+  dplyr::group_by(V0_GRP, V0_DEM_GEN) %>%
+  #count %>%
+  ggplot(aes(V0_DEM_GEN)) +
+  geom_bar(fill = wes_palette("Royal2")[3:4]) +
+  coord_flip() +
+  xlab('Пол') +
+          ylab('Количество') +
+          theme_minimal() +
+          ggtitle('Количество мужчин/женщин в когорте плацебо')
+
+GenderR
+```
+
+```{r}
+data %>%
+  select(V0_GRP, where(is.factor)) %>%
+  count(`V0_GRP` ~ `V0_DEM_GEN`) %>%
+  group_by(V0_GRP) %>%
+  mutate(`Всего / % по выборке` = paste0(freq, ' / ', (freq/sum(freq)) %>% round(4) %>% `*`(100) %>% str_c('%'))) %>% mutate(freq = NULL) %>%
+  tidyr::pivot_wider(names_from = c(`V0_GRP`),
+                     values_from = c(`Всего / % по выборке`)) %>%
+   dplyr::rename('G. glauca 15C' = T, 'Placebo' = R, 'Gender' = V0_DEM_GEN) %>%
+  flextable()%>%
+  theme_box() %>%
+  set_table_properties(layout = "autofit")
+```
+
+
+
+#### Сравнение базовых характеристик пациентов и баллов опросника RQLQ (для визита 1) в группах *G. glauca 15C* и *плацебо*.
+
+**Гипотезы:** 
+
+**H0:** средний возраст пациентов в группе *G. glauca 15C* равен среднему возрасту в группе 
+
+
+**H1:** средний возраст пациентов в группе *G. glauca 15C* **не** равен среднему возрасту в группе плацебо
+
+**Результат**
+```{r}
+res_age <- t.test(V0_DEM_AGE ~ V0_GRP, data = data, paired = FALSE)
+```
+
+**Не можем отвергнуть нулевую гипотезу.**
+
+**Cредний возраст пациентов в группе G. glauca 15C равен среднему возрасту в группе плацебо, p-уровень = 0.057**
+
+```{r}
+age_groups <-
+ggplot() +
+  geom_boxplot(data = data, 
+               aes(x = V0_DEM_AGE, y = V0_GRP)) +
+  theme_light() +
+  ggtitle('Boxplot распределения возраста в группах') + 
+  labs(x = 'Возраст', y = 'Группа') +
+  theme(plot.title = element_text(hjust = 0.5, size = 15))
+
+age_groups
+```
+
+**Гипотезы**
+
+**H0:** cредний балл опросника RQLQ у пациентов в группе G. glauca 15C равен среднему баллу опросника RQLQ у пациентов в группе плацебо
+
+**H1:** cредний балл опросника RQLQ у пациентов в группе G. glauca 15C не равен среднему баллу опросника RQLQ у пациентов в группе плацебо
+
+**Результат**
+```{r}
+res_rqlq <- t.test(V1_RQLQ ~ V0_GRP, data = data, paired = FALSE)
+```
+
+**Не можем отвергнуть нулевую гипотезу. **
+
+**Cредний балл опросника RQLQ у пациентов в группе G. glauca 15C равен среднему баллу опросника RQLQ у пациентов в группе плацебо, p-уровень = 0.486**
+
+
+```{r}
+rqlq_groups <-
+ggplot() +
+  geom_boxplot(data = data, 
+               aes(x = V1_RQLQ, y = V0_GRP)) +
+  theme_light() +
+  ggtitle('Boxplot распределения баллов опросника в группах') + 
+  labs(x = 'Средний балл опросника', y = 'Группа') +
+  theme(plot.title = element_text(hjust = 0.5, size = 15))
+
+rqlq_groups
+```
+
+**ВЫВОДЫ:**
+
+1. Согласно проведенному анализу, группы плацебо и исследуемого препарата G. glauca 15C значимо не отличаются друг от друга по своим базовым характеристикам - возрасту и полу.
+
+  1.1. Cредний балл опросника RQLQ у пациентов в группе G. glauca 15C равен среднему баллу опросника RQLQ у пациентов в группе плацебо
+  
+  1.2. Гендерный состав групп однороден: процентное соотношение мужчин и женщин в группах G. glauca 15C и плацебо +/- одинаково.
+  
+2. Поскольку группы однородны по своему составу, их сравнение между собой не потребует дополнительных поправок 
+
+3. Считаем важным исследовать распределение среднего балла RQLQ для визита 1, чтобы понять, сравнимы ли группы на начало исследования. По результатам исследования средний балл опросника RQLQ у пациентов в группе G. glauca 15C равен среднему баллу опросника RQLQ у пациентов в группе плацебо.
+
+## Анализ первичной конечной точки
+
+```{r pkt_preprocessing, results='hide', echo=FALSE, message=FALSE, warning=FALSE}
+
+data <- readxl::read_xlsx("db_team3.xlsx")
+df <- 
+  select(data, V0_GRP, V1_RQLQ, V2_RQLQ) %>%
+  mutate(`Снижение балла RQLQ` = V1_RQLQ - V2_RQLQ) %>%
+  dplyr::rename(`Группа` = V0_GRP) %>%
+  mutate(`Группа` = case_when(`Группа` == "T" ~ "Galphimia g. 15С",
+                              `Группа` == "R" ~ "Плацебо")) %>%
+  mutate(`Группа` = as.factor(`Группа`))
+
+# sum(df$V1_RQLQ < 3)
+# sum(df$V1_RQLQ > 6)
+p.value <- t.test(`Снижение балла RQLQ` ~ `Группа`, df)$p.value  %>% round(3)
+ci <- paste(t.test(`Снижение балла RQLQ` ~ `Группа`, df)$conf.int %>% round(2), collapse = " - ")
+```
+
+```{r pkt_stat, results='hide', echo=FALSE, message=FALSE, warning=FALSE}
+statistics <- list(
+      `_Количество наблюдений` = ~ sum(!is.na(.x)) %>% as.character(),
+      `_Ср. знач.` = ~ mean(.x, na.rm = TRUE) %>% round(2) %>% as.character(),
+      `_95% ДИ для среднего` = ~ paste0(CI(.x, ci = 0.95)[3] %>% round(2), ' - ', CI(.x, ci = 0.95)[1] %>% round(2)) %>% as.character(),
+      `_Станд. отклон.` = ~ sd(.x, na.rm = TRUE) %>% round(2) %>% as.character(),
+      #`_Коэфф. вариации, %` = ~ 100*sd(.x, na.rm = TRUE)/mean(.x, na.rm = TRUE) %>% round(2) %>% as.character(),
+      `_Медиана` = ~ median(.x, na.rm = TRUE) %>% round(2) %>% as.character(),
+      `_Q1 - Q3` = ~ paste0(quantile(.x, 0.25, na.rm = TRUE) %>% round(2), ' - ', quantile(.x, 0.75, na.rm = TRUE) %>% round(2)) %>% as.character(),
+       `_мин. - макс.` = ~ paste0(min(.x, na.rm = TRUE) %>% round(2), ' - ',  max(.x, na.rm = TRUE) %>% round(2))  %>% as.character()
+      )
+```
+
+Для оценки первичной конечной точки эффективности был применен t-критерий Стьюдента для непарных выборок, так как размер выборки превышает 30 наблюдений. Была расчитана разница изменений балла RQLQ на Визите 2 относительно Визита 1, результаты теста свидетельствуют об отсутствии различий между группами по данному параметру. 95% доверительный интервал для разницы составил диапазон от -0.52 до 0.18 (пересекает 0), p-value равно 0.35.
+
+```{r pkt_table, echo=FALSE, message=FALSE, warning=FALSE}
+flex <-
+  df %>%
+  select(`Группа`, `Снижение балла RQLQ`) %>%
+  group_by(`Группа`) %>%
+  dplyr::summarise(across(where(is.numeric), statistics)) %>% 
+  t() %>% as.data.frame() %>% `colnames<-`(.[1, ]) %>%
+  .[-1, ] %>% rownames_to_column("value") %>%
+  separate(value, into = c("Переменная","Статистика"), sep = '__') %>%
+  mutate(`95% ДИ для разницы средних` = ci) %>%
+  mutate(`T-test p-value` = p.value) %>%
+  flextable()%>%
+  theme_box() %>%
+  merge_v(c('Переменная', '95% ДИ для разницы средних', 'T-test p-value')) %>%
+  flextable::align(j = c(1, 3:6), align = "center", part = 'all') %>%
+  set_caption("Результаты оценки первичной конечной точки. Популяция ITT. N = 196") %>%
+  set_table_properties(layout = "autofit")
+
+flex
+```
+
+**ВЫВОДЫ:** нулевая гипотеза об отсутствии различий между исследуемым препаратом и плацебо не отвергается. Эффективность гомеопатического препарата Galphimia g. 15С не доказана в рамках проведенного клиничекого исследования.
+
+
+## Анализ безопасности
+
+### Оценка ЭКГ, жизненных показателей и результатов физикального осмотра
+
+На основе полученных результатов (ЭКГ, жизненные показатели, физикальный осмотр) можно сделать вывод о благоприятном профиле безопасности гомеопатического препарата Galphimia g. 15С. За период исследование не было выявлено значительных отклонений от нормы. Были проведены межгрупповые сравнения частот нормальных результатов и отклонений, отличий выявлено не было (p-value>0.05, тест Фишера).
+
+```{r, results='hide', echo=FALSE, message=FALSE, warning=FALSE}
+data_team3 <- read_excel("db_team3.xlsx")
+
+
+data_saf_work <- data_team3 %>%
+  select(ID, group = V0_GRP, V1_NORM_ECG, V1_NORM_PHYS, V1_NORM_VIT,  V2_NORM_ECG,  V2_NORM_PHYS, V2_NORM_VIT) %>%
+  pivot_longer(cols=contains("NORM"), names_to = "visit", values_to = "value") %>%
+  mutate(result = if_else(value ==  0, "Норма", "Отклонение")) %>%
+  mutate(clinical_significant = case_when(value == 0 ~ "Норма",
+                                          value == 1 ~ "Незначительное отклонение от нормы",
+                                          value == 2 ~ "Значительное отклонение от нормы"))
+
+
+data_saf_ecg <- data_saf_work %>%
+  filter(grepl('ECG', visit)) %>%
+  mutate(parameter = "ECG")
+
+data_saf_phys <- data_saf_work %>%
+  filter(grepl('PHYS', visit)) %>%
+  mutate(parameter = "PHYS")
+
+data_saf_vit <- data_saf_work %>%
+  filter(grepl('VIT', visit)) %>%
+  mutate(parameter = "VIT")
+
+
+
+```
+
+```{r, results='hide', echo=FALSE, message=FALSE, warning=FALSE} 
+
+#Функция для построения таблицы по визитам
+normal_abnormal_vis_param_clin_znach <- function(data,visit, visit_rus,parameter,parameter_rus,group,result,
+                                                 name,col_names,safty_freq,head_group,head_group_proc){
+  i <- 0  #num of visit
+  y <- 0 #num of parameter
+  df_result <- data.frame()
+  df_res_all <- data.frame()
+  for(y in 1:length(parameter)){
+    for(i in 1:length(visit)){
+      data1 <-data[which(data$visit == visit[[i]] & data$parameter == parameter[[y]]),]  
+      data1 <- as.data.frame(data1)
+      
+      k <- 0
+      norm_all <- data.frame(1)
+      abnorm_all <- data.frame(1)
+      abnorm_clin_no_all <- data.frame(1)
+      abnorm_clin_all <- data.frame(1)
+      no_data_all <- data.frame(1)
+      for(k in 1:length(group)){
+        norm <- as.data.frame(nrow(data1[which(data1$group == group[[k]] & data1$result == result[[1]]),]))
+        norm_all <- as.data.frame(cbind(norm_all,norm))
+        
+        abnorm <- as.data.frame(nrow(data1[which(data1$group == group[[k]] & data1$result == result[[2]]),]))
+        abnorm_all <- as.data.frame(cbind(abnorm_all,abnorm))
+        
+        abnorm_clin_no <- as.data.frame(nrow(data1[which(data1$group == group[[k]] & data1$clinical_significant == result[[3]]),]))
+        abnorm_clin_no_all <- as.data.frame(cbind(abnorm_clin_no_all,abnorm_clin_no))
+        
+        abnorm_clin <- as.data.frame(nrow(data1[which(data1$group == group[[k]] & data1$clinical_significant == result[[4]]),]))
+        abnorm_clin_all <- as.data.frame(cbind(abnorm_clin_all,abnorm_clin))
+        
+        safty_num <- safty_freq[which(safty_freq$group == group[[k]]),]
+        
+        no_data <- as.data.frame(safty_num[1,2] - norm[1,1] - abnorm[1,1])
+        no_data_all <- as.data.frame(cbind(no_data_all,no_data))
+      }
+      
+      norm_all <- as.data.frame(norm_all[,-1])
+      colnames(norm_all) <- group
+      abnorm_all <- as.data.frame(abnorm_all[,-1])
+      colnames(abnorm_all) <- group
+      abnorm_clin_no_all <- as.data.frame(abnorm_clin_no_all[,-1])
+      colnames(abnorm_clin_no_all) <- group
+      abnorm_clin_all <- as.data.frame(abnorm_clin_all[,-1])
+      colnames(abnorm_clin_all) <- group
+      no_data_all <- as.data.frame(no_data_all[,-1])
+      colnames(no_data_all) <- group  
+      
+      data_v <- rbind(norm_all, abnorm_clin_no_all,abnorm_clin_all, no_data_all)
+      data_v <- cbind(name,data_v)
+      
+      j <- 0
+      data_proc <- data_v[,1]
+      for(j in 1:length(group)){
+        part <- as.data.frame(data_v[,group[[j]]])
+        safty_num <- safty_freq[which(safty_freq$group == group[[j]]),]
+        part$proc <- ((as.numeric(part[,1]) / safty_num[1,2]) * 100)
+        part$proc <- format(round(part$proc, digits = 2),nsmall = 2)
+        part$proc <- paste(part$proc, "%", sep = "")
+        data_proc <- as.data.frame(cbind(data_proc,part))
+      }
+      
+      colnames(data_proc) <- col_names
+      
+      h <- 0
+      for(h in 1:length(head_group)){
+        if(data_proc[3,head_group[[h]]] >0){
+          data_proc[3,head_group[[h]]] <- paste("#",data_proc[3,head_group[[h]]],"#",sep = "")
+          data_proc[3,head_group_proc[[h]]] <- paste("#",data_proc[3,head_group_proc[[h]]],"#",sep = "")
+        }else{
+          data_proc[3,head_group[[h]]] <- data_proc[3,head_group[[h]]]
+        }
+      }
+      
+      if(length(visit) > 1){
+        temprow <- matrix(c(rep.int(NA,length(data_proc))),nrow=1,ncol=length(data_proc))
+        newrow <- data.frame(temprow)
+        colnames(newrow) <- colnames(data_proc)
+        data_proc <- rbind(newrow, data_proc)
+        
+        data_proc[1,1] <- visit_rus[[i]]
+        data_proc[1,2:ncol(data_proc)] <-""
+        #colnames(data_v) <- col_names
+        
+        df_result <- as.data.frame(rbind(df_result, data_proc))
+      }
+      else{
+        df_result <- data_proc
+      }
+    }
+    temprow <- matrix(c(rep.int(NA,length(df_result))),nrow=1,ncol=length(df_result))
+    newrow <- data.frame(temprow)
+    colnames(newrow) <- colnames(df_result)
+    df_result <- rbind(newrow, df_result)
+    
+    df_result[1,1] <- parameter_rus[[y]]
+    df_result[1,2:ncol(df_result)] <- ""
+    df_res_all <- rbind(df_res_all, df_result)
+    df_result <- NULL
+  }
+  return (df_res_all)
+}
+
+
+```
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, results='hide'}
+#Настройка параметров для функции и вывод таблицы для ЭКГ
+safty_freq <- data.frame(c("T","R"),c(98,98)) 
+colnames(safty_freq) <- c("group","means")
+
+group <- c("T", "R")
+
+visit_ekg <- c("V1_NORM_ECG", "V2_NORM_ECG")
+
+visit_ekg_report <- c("Визит 1","Визит 2")
+
+ekg_parameter <- "ECG"
+
+ekg_parameter_report <- "ЭКГ"
+
+result_ekg <- c("Норма","Отклонение","Незначительное отклонение от нормы","Значительное отклонение от нормы")
+
+name_ekg <- c("Норма","Отклонение (НЗ)","Отклонение (З)","Исследование не проведено")
+
+col_name <- c("Визит/Оценка","Galphimia glauca 15С (n=98)","Galphimia glauca 15С %","Плацебо (n=98)", "Плацебо %")
+
+
+head_group <- c("Galphimia glauca 15С (n=98)","Плацебо (n=98)")
+head_group_proc <- c("Galphimia glauca 15С %","Плацебо %")
+
+df_ekg_table <- normal_abnormal_vis_param_clin_znach(data_saf_ecg,visit_ekg,visit_ekg_report, ekg_parameter, ekg_parameter_report,group,result_ekg,name_ekg,col_name,safty_freq,head_group,head_group_proc)
+                                                        
+
+
+#Визит 2, Норма
+v2normekg <- matrix(c(98, 96, 0, 2), nrow = 2,
+	              dimnames =
+	       list(c("Galphimia glauca 15С", "Плацебо"),
+		    c("Норма", "Отклонение")))
+
+round(fisher.test(v2normekg)$p.value, 3)
+
+pvalue_ekg <- c("", "", "-", "-", "-", "-", "", "0.497", "0.497", "-", "-")
+
+df_ekg_table <- df_ekg_table  %>%
+  mutate(`p-value` = pvalue_ekg)
+
+
+```
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+#Вывод таблицы
+df_ekg_table %>%
+  flextable() %>%
+  theme_box() %>%
+  merge_v("p-value") %>%
+  merge_h(i=c(1,2,7)) %>%
+  bold(i=c(1,2,7)) %>%
+  italic(i=c(1,2,7)) %>%
+  set_caption("Результаты оценки ЭКГ на Визите 1 и 2. Популяция безопасности (TS). N = 196") %>%
+  width(width = c(2, 1, 1, 1, 1, 1))
+```
+
+
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, results='hide'}
+#Настройка параметров для функции и вывод таблицы для физикального осмотра
+
+visit_phys <- c("V1_NORM_PHYS", "V2_NORM_PHYS")
+
+visit_phys_report <- c("Визит 1","Визит 2")
+
+phys_parameter <- "PHYS"
+
+phys_parameter_report <- "Физикальное обследование"
+
+result_phys <- c("Норма","Отклонение","Незначительное отклонение от нормы","Значительное отклонение от нормы")
+
+name_phys <- c("Норма","Отклонение (НЗ)","Отклонение (З)","Исследование не проведено")
+
+col_name <- c("Визит/Оценка","Galphimia glauca 15С (n=98)","Galphimia glauca 15С %","Плацебо (n=98)", "Плацебо %")
+
+
+head_group <- c("Galphimia glauca 15С (n=98)","Плацебо (n=98)")
+head_group_proc <- c("Galphimia glauca 15С %","Плацебо %")
+
+df_phys_table <- normal_abnormal_vis_param_clin_znach(data_saf_phys,visit_phys,visit_phys_report, phys_parameter, phys_parameter_report,group,result_phys,name_phys,col_name,safty_freq,head_group,head_group_proc)
+
+
+#Визит 2, Норма
+v2normphys <- matrix(c(98, 96, 0, 2), nrow = 2,
+	              dimnames =
+	       list(c("Galphimia glauca 15С", "Плацебо"),
+		    c("Норма", "Отклонение")))
+
+round(fisher.test(v2normphys)$p.value, 3)
+
+pvalue_phys <- c("", "", "-", "-", "-", "-", "", "0.497", "0.497", "-", "-")
+
+df_phys_table <- df_phys_table  %>%
+  mutate(`p-value` = pvalue_phys)
+
+
+
+```
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+#Вывод таблицы
+df_phys_table %>%
+  flextable() %>%
+  theme_box() %>%
+  merge_v("p-value") %>%
+  merge_h(i=c(1,2,7)) %>%
+  bold(i=c(1,2,7)) %>%
+  italic(i=c(1,2,7)) %>%
+  set_caption("Результаты физикального осмотра на Визите 1 и 2. Популяция безопасности (TS). N = 196") %>%
+  width(width = c(2, 1, 1, 1, 1, 1))
+```
+
+
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, results='hide'}
+#Настройка параметров для функции и вывод таблицы для жизненных показателей
+
+visit_vit <- c("V1_NORM_VIT", "V2_NORM_VIT")
+
+visit_vit_report <- c("Визит 1","Визит 2")
+
+vit_parameter <- "VIT"
+
+vit_parameter_report <- "Жизненные показатели"
+
+result_vit <- c("Норма","Отклонение","Незначительное отклонение от нормы","Значительное отклонение от нормы")
+
+name_vit <- c("Норма","Отклонение (НЗ)","Отклонение (З)","Исследование не проведено")
+
+col_name <- c("Визит/Оценка","Galphimia glauca 15С (n=98)","Galphimia glauca 15С %","Плацебо (n=98)", "Плацебо %")
+
+
+head_group <- c("Galphimia glauca 15С (n=98)","Плацебо (n=98)")
+head_group_proc <- c("Galphimia glauca 15С %","Плацебо %")
+
+df_vit_table <- normal_abnormal_vis_param_clin_znach(data_saf_vit,visit_vit,visit_vit_report, vit_parameter, vit_parameter_report,group,result_vit,name_vit,col_name,safty_freq,head_group,head_group_proc)                                  
+
+#Визит 1, Норма
+v1normvit <- matrix(c(95, 98, 3, 0), nrow = 2,
+	              dimnames =
+	       list(c("Galphimia glauca 15С", "Плацебо"),
+		    c("Норма", "Отклонение")))
+
+round(fisher.test(v1normvit)$p.value, 3)
+
+#Визит 2, Норма
+v2normvit <- matrix(c(97, 96, 1, 2), nrow = 2,
+	              dimnames =
+	       list(c("Galphimia glauca 15С", "Плацебо"),
+		    c("Норма", "Отклонение")))
+
+round(fisher.test(v2normvit)$p.value, 3)
+
+pvalue_vit <- c("", "", "0.246", "0.246", "-", "-", "", ">0.999", ">0.999", "-", "-")
+
+df_vit_table <- df_vit_table  %>%
+  mutate(`p-value` = pvalue_vit)
+
+```
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+#Вывод таблицы
+df_vit_table %>%
+  flextable() %>%
+  theme_box() %>%
+  merge_v("p-value") %>%
+  merge_h(i=c(1,2,7)) %>%
+  bold(i=c(1,2,7)) %>%
+  italic(i=c(1,2,7)) %>%
+  set_caption("Результаты оценки жизненных показателей на Визите 1 и 2. Популяция безопасности (TS). N = 196") %>%
+  width(width = c(2, 1, 1, 1, 1, 1))
+```
+
+
+
+### Проверка безопасности: кровь
+
+```{r}
+data_32 <- data %>%
+  select("V0_GRP", contains("_CB_"))
+```
+
+### Изменение результатов лаб.исследований по визитам
+
+```{r}
+statistics <- list(
+      `Количество субъектов` = ~length(.x),
+      `Ср. знач.` = ~ifelse(sum(!is.na(.x)) == 0, "Н/П*", mean(.x, na.rm = TRUE) %>% round(2) %>% as.character()),
+      `Станд. отклон.` = ~ifelse(sum(!is.na(.x)) < 3, "Н/П*", sd(.x, na.rm = TRUE) %>% round(2) %>% as.character()),
+      `95% ДИ для среднего` = ~sd(.x, na.rm = TRUE) %>% round(2) %>% as.character(),
+      `мин. - макс.` = ~ifelse(sum(!is.na(.x)) == 0, "Н/П*", paste0(min(.x, na.rm = TRUE) %>% round(2), " - ", max(.x, na.rm = TRUE) %>% round(2))),
+      `Медиана` = ~ifelse(sum(!is.na(.x)) == 0, "Н/П*", median(.x, na.rm = TRUE) %>% round(2) %>% as.character()),
+      `Q1 - Q3` = ~ifelse(sum(!is.na(.x)) == 0, "Н/П*", paste0(quantile(.x, 0.25, na.rm = TRUE) %>% round(2), " - ", quantile(.x, 0.75, na.rm = TRUE) %>% round(2)))
+)
+
+```
+
+Визит 1
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+data_32 %>%
+  select("V0_GRP", contains("V1_")) %>%
+  group_by(V0_GRP)%>%
+  dplyr::summarise(across(where(is.numeric), statistics))%>%
+  pivot_longer(! "V0_GRP",
+               values_transform = as.character) %>%
+  mutate(name = str_remove(name, "V1_CB_")) %>%
+  separate(name, into = c("Переменная", "Статистика"), sep = "_") %>%
+  rename(`Значение` = value) %>% flextable() %>% theme_box() %>%
+  flextable::align(j = c(1, 3:4), align = "center", part = 'all') %>%
+  set_caption("Описательные статистики на момент визита 1") %>%
+  merge_v(c("V0_GRP", "Переменная")) %>%
+  set_table_properties(layout = "autofit")
+```
+
+Визит 2
+
+```{r , echo=FALSE, message=FALSE, warning=FALSE}
+data_32 %>%
+  select("V0_GRP", contains("V2_")) %>%
+  group_by(V0_GRP)%>%
+  dplyr::summarise(across(where(is.numeric), statistics))%>%
+  pivot_longer(! "V0_GRP",
+               values_transform = as.character) %>%
+  mutate(name = str_remove(name, "V2_CB_")) %>%
+  separate(name, into = c("Переменная", "Статистика"), sep = "_") %>%
+  rename(`Значение` = value) %>% flextable() %>% theme_box() %>%
+  flextable::align(j = c(1, 3:4), align = "center", part = 'all') %>%
+  set_caption("Описательные статистики на момент визита 2") %>%
+  merge_v(c("V0_GRP", "Переменная")) %>%
+  set_table_properties(layout = "autofit")
+```
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+data_32_R <- data_32 %>%
+  filter (V0_GRP == "R")%>%
+  select(!V0_GRP)
+
+data_32_T <- data_32 %>%
+  filter (V0_GRP == "T")%>%
+  select(!V0_GRP)
+```
+
+
+```{r , echo=FALSE, message=FALSE, warning=FALSE}
+data_32_R_delta <- data_32_R %>%
+  mutate(delta_WBC = V2_CB_WBC - V1_CB_WBC,
+         delta_RBC = V2_CB_RBC - V1_CB_RBC,
+         delta_HGB = V2_CB_HGB - V1_CB_HGB,
+         delta_HCT = V2_CB_HCT - V1_CB_HCT,
+         delta_PLT = V2_CB_PLT - V1_CB_PLT,
+         "delta_NEUT#" = `V2_CB_NEUT#` - `V1_CB_NEUT#`,
+         "delta_LYM#" = `V2_CB_LYM#` - `V1_CB_LYM#`, 
+         "delta_MON#" = `V2_CB_MON#` - `V1_CB_MON#`, 
+         "delta_EO#" = `V2_CB_EO#` - `V1_CB_EO#`, 
+         "delta_BAS#" = `V2_CB_BAS#` - `V1_CB_BAS#`)%>%
+  select(contains("delta_"))
+
+data_32_T_delta <- data_32_T %>%
+  mutate(delta_WBC = V2_CB_WBC - V1_CB_WBC,
+         delta_RBC = V2_CB_RBC - V1_CB_RBC,
+         delta_HGB = V2_CB_HGB - V1_CB_HGB,
+         delta_HCT = V2_CB_HCT - V1_CB_HCT,
+         delta_PLT = V2_CB_PLT - V1_CB_PLT,
+         "delta_NEUT#" = `V2_CB_NEUT#` - `V1_CB_NEUT#`,
+         "delta_LYM#" = `V2_CB_LYM#` - `V1_CB_LYM#`, 
+         "delta_MON#" = `V2_CB_MON#` - `V1_CB_MON#`, 
+         "delta_EO#" = `V2_CB_EO#` - `V1_CB_EO#`, 
+         "delta_BAS#" = `V2_CB_BAS#` - `V1_CB_BAS#`)%>%
+  select(contains("delta_"))
+
+```
+
+
+
+```{r , echo=FALSE, message=FALSE, warning=FALSE, results='hide'}
+columns = c("Показатель","p-value")
+res <- data.frame(matrix(nrow = 0, ncol = length(columns)))
+colnames(res) = columns
+
+
+res[ nrow(res) + 1,] = c("WBC", t.test(data_32_R_delta$delta_WBC, data_32_T_delta$delta_WBC)$p.value)
+res[ nrow(res) + 1,] = c("RBC", t.test(data_32_R_delta$delta_RBC, data_32_T_delta$delta_RBC)$p.value)
+res[ nrow(res) + 1,] = c("HGB", t.test(data_32_R_delta$delta_HGB, data_32_T_delta$delta_HGB)$p.value)
+res[ nrow(res) + 1,] = c("HCT", t.test(data_32_R_delta$delta_HCT, data_32_T_delta$delta_HCT)$p.value)
+res[ nrow(res) + 1,] = c("PLT", t.test(data_32_R_delta$delta_PLT, data_32_T_delta$delta_PLT)$p.value)
+res[ nrow(res) + 1,] = c("NEUT", t.test(data_32_R_delta$`delta_NEUT#`, data_32_T_delta$`delta_NEUT#`)$p.value)
+res[ nrow(res) + 1,] = c("LYM", t.test(data_32_R_delta$`delta_LYM#`, data_32_T_delta$`delta_LYM#`)$p.value)
+res[ nrow(res) + 1,] = c("MON", t.test(data_32_R_delta$`delta_MON#`, data_32_T_delta$`delta_MON#`)$p.value)
+res[ nrow(res) + 1,] = c("EO", t.test(data_32_R_delta$`delta_EO#`, data_32_T_delta$`delta_EO#`)$p.value)
+res[ nrow(res) + 1,] = c("BAS", t.test(data_32_R_delta$`delta_BAS#`, data_32_T_delta$`delta_BAS#`)$p.value)
+```
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, results='hide'}
+res %>%
+mutate()
+res$`p-value` <- as.numeric(res$`p-value`)
+res$`p-value` <- round(res$`p-value`, digit=3) 
+
+```
+
+```{r}
+res %>% as.data.frame() %>% flextable() %>% theme_box()  %>%
+set_caption("Результаты межгрупповых сравнений изменений параметров ОАК визита 2") %>%
+set_table_properties(layout = "autofit")
+```
+
+**ВЫВОДЫ:** 
+1. Анализ показал, что между изменениями показателей общего анализа крови на Визите 2 относительно Визита 1 в группах исследуемого препарата и плацебо не было выявлено статистически значимых различий.
+2.На основе полученных результатов (ЭКГ, жизненные показатели, физикальный осмотр) можно сделать вывод о благоприятном профиле безопасности гомеопатического препарата Galphimia g. 15С. За период исследование не было выявлено значительных отклонений от нормы. Были проведены межгрупповые сравнения частот нормальных результатов и отклонений, отличий выявлено не было (p-value>0.05, тест Фишера).
